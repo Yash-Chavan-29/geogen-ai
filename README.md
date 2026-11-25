@@ -1,12 +1,15 @@
-# GeoGen AI — AI-Powered Location & Trip Intelligence Platform
+# GeoGen AI — Real-Time Spatial Trip & Location Intelligence Platform
 
-[![Platform](https://img.shields.io/badge/Platform-GeoGen%20AI-000000?style=for-the-badge)](file:///Y:/Practice/geogen-ai/README.md)
+[![Live App](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-10B981?style=for-the-badge&logo=githubpages&logoColor=white)](https://yash-chavan-29.github.io/geogen-ai/)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Yash-Chavan-29/geogen-ai)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![ReportLab](https://img.shields.io/badge/ReportLab-Vector%20PDF-FF6F00?style=for-the-badge)](https://www.reportlab.com)
+[![Mapbox](https://img.shields.io/badge/Mapbox-GL%20JS%20v3-000000?style=for-the-badge&logo=mapbox&logoColor=white)](https://www.mapbox.com)
+[![Gemini](https://img.shields.io/badge/Google-Gemini%20AI-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://aistudio.google.com)
 
-**GeoGen AI** turns natural-language travel queries into structured, grounded, and actionable trip dossiers. It integrates Google Maps Platform for real spatial validation, Gemini Flash for itinerary arrangement, an NLP review aspect and sentiment pipeline, and ReportLab for compiling vector PDF trip dossiers.
+**GeoGen AI** turns natural-language travel and routing queries into structured, grounded, and actionable trip dossiers with live road geometry across India. It integrates **Mapbox GL JS** for real spatial route geometry and turn-by-turn navigation handoff to Google Maps, **Google Gemini** for intelligent chat assistance and itinerary synthesis, an **NLP aspect review pipeline**, and vector PDF export.
+
+🚀 **Live Public App:** [https://yash-chavan-29.github.io/geogen-ai/](https://yash-chavan-29.github.io/geogen-ai/)
 
 ---
 
