@@ -13,6 +13,7 @@ import type {
 } from '../types';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || '';
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 
 // Curated database for major Indian travel hubs
 const REGIONAL_PLACES_DB: Record<string, Place[]> = {
@@ -1082,45 +1083,332 @@ export async function getPlaceReviewsClient(placeId: string): Promise<PlaceRevie
   };
 }
 
-// Client Concierge Chat Assistant
+// Client Concierge Chat Assistant with dual-engine AI (Gemini Live API + Spatial Travel Intelligence Fallback)
 export async function chatWithAssistantClient(
   message: string,
-  tripContext?: any
+  tripContext?: any,
+  history?: { role: string; content: string }[]
 ): Promise<{ reply: string; suggested_followups: string[]; source: string }> {
   const msgLower = (message || '').toLowerCase();
-  const dest = tripContext?.destination || 'your destination';
-  const src = tripContext?.source_location || 'your starting location';
+  const dest = tripContext?.destination || 'Mysuru';
+  const src = tripContext?.source_location || 'Current Location';
   const mode = tripContext?.transport_mode || 'driving';
+  const stops: string[] = tripContext?.stops || [];
 
-  let reply = '';
-  const followups: string[] = [];
+  // ==================== ENGINE 1: DIRECT GEMINI API ====================
+  if (GEMINI_KEY && GEMINI_KEY.startsWith('AIzaSy')) {
+    try {
+      const candidateModels = ['gemini-flash-lite-latest', 'gemini-2.5-flash'];
+      const systemInstruction = `You are GeoGen AI Assistant — the intelligent conversational AI assistant for GeoGen AI spatial mapping and travel across India.
 
-  if (msgLower.includes('route') || msgLower.includes('how to reach') || msgLower.includes('distance')) {
-    const dist = tripContext?.departure_leg?.formatted_distance || 'the highway route';
-    const dur = tripContext?.departure_leg?.formatted_duration || 'a few hours';
-    reply = `Your journey from **${src}** to **${dest}** spans **${dist}** with an estimated travel duration of **${dur}** via **${mode}**. You can click the green **"Start Route In Google Maps"** button at the top of the Map & Planner page to launch live turn-by-turn navigation directly on your device.`;
-    followups.push('What are the best food stops along the route?');
-    followups.push('What is the total estimated budget?');
-  } else if (msgLower.includes('budget') || msgLower.includes('cost') || msgLower.includes('price')) {
-    const total = tripContext?.budget_breakdown?.total_estimated || 6000;
-    const perPerson = tripContext?.budget_breakdown?.per_person_estimated || Math.round(total / 2);
-    reply = `Your estimated trip budget is **₹${total.toLocaleString('en-IN')}** total (approx. **₹${perPerson.toLocaleString('en-IN')} per person**). This includes intercity transport, attraction entries, meals, and a 15% flexible contingency buffer.`;
-    followups.push('Can I download this as a PDF report?');
-    followups.push('How long does each stop take?');
-  } else if (msgLower.includes('weather') || msgLower.includes('best time') || msgLower.includes('when to visit')) {
-    reply = `The best time to explore **${dest}** is during morning hours and late afternoon when temperatures are comfortable. We recommend starting your day by 8:30 AM to catch the key heritage landmarks with minimal queues!`;
-    followups.push('Show me the departure route details');
-    followups.push('What items should I pack?');
-  } else {
-    reply = `Hello! I'm your **GeoGen AI Spatial Travel Concierge**. I'm here to assist you with everything regarding your journey to **${dest}**, route polylines, departure timings from **${src}**, attraction reviews, and budget optimization. How can I help you customize your trip today?`;
-    followups.push(`Tell me about the departure leg to ${dest}`);
-    followups.push('Give me a budget breakdown');
-    followups.push('What are the top must-see places?');
+PRIMARY DOMAIN & CONTEXT:
+- Starting Location: ${src}
+- Destination: ${dest}
+- Duration: ${tripContext?.duration_days || 2} days
+- Transport Mode: ${mode}
+${stops.length > 0 ? `- Planned Itinerary Stops: ${stops.join(', ')}` : ''}
+${tripContext?.budget ? `- Estimated Total Budget: ₹${tripContext.budget}` : ''}
+
+CRITICAL INSTRUCTIONS:
+1. You MUST answer ANY question the user asks. If the user asks about places, monuments, culture, history, science, sports, coding, or everyday queries, give a direct, thorough, and articulate response.
+2. When answering about this trip or Indian destinations, provide authentic details (monuments, entry passes, dress codes, Google Maps handoff, cuisine, local advice).
+3. Do NOT repeat a generic welcome greeting. Answer the question directly!
+4. Format strictly as a valid JSON object:
+{
+  "reply": "Your markdown response here",
+  "suggested_followups": ["Question 1?", "Question 2?", "Question 3?"]
+}`;
+
+      let conversationContext = '';
+      if (history && history.length > 0) {
+        for (const h of history.slice(-4)) {
+          conversationContext += `${h.role.toUpperCase()}: ${h.content}\n`;
+        }
+      }
+      conversationContext += `USER QUERY: ${message}`;
+
+      const payload = {
+        contents: [
+          {
+            parts: [{ text: `${systemInstruction}\n\n${conversationContext}` }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 900
+        }
+      };
+
+      for (const model of candidateModels) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (res.ok) {
+            const data = await res.json();
+            const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const cleaned = rawText.replace(/```(?:json)?/g, '').trim();
+
+            try {
+              const parsed = JSON.parse(cleaned);
+              if (parsed.reply) {
+                return {
+                  reply: parsed.reply,
+                  suggested_followups:
+                    Array.isArray(parsed.suggested_followups) && parsed.suggested_followups.length > 0
+                      ? parsed.suggested_followups
+                      : [
+                          `What are the ticket prices in ${dest}?`,
+                          `How do I open routes in Google Maps?`,
+                          `Tell me about the departure leg from ${src.split(',')[0]}`
+                        ],
+                  source: `gemini_live_${model}`
+                };
+              }
+            } catch {
+              if (cleaned.length > 20) {
+                return {
+                  reply: cleaned,
+                  suggested_followups: [
+                    `Tell me about the top places in ${dest}`,
+                    `How long is the drive from ${src.split(',')[0]}?`,
+                    `What is the total estimated budget?`
+                  ],
+                  source: `gemini_live_text`
+                };
+              }
+            }
+          }
+        } catch (mErr) {
+          console.warn(`Gemini model ${model} attempt notice:`, mErr);
+        }
+      }
+    } catch (gErr) {
+      console.warn('Gemini live call error, using spatial fallback:', gErr);
+    }
   }
 
+  // ==================== ENGINE 2: SPATIAL INTELLIGENCE FALLBACK ====================
+  // Comprehensive, intelligent offline responses for all common and edge queries
+
+  // 1. MUST-SEE PLACES / ATTRACTIONS / MONUMENTS / HIGHLIGHTS / SIGHTSEEING
+  if (
+    msgLower.includes('must-see') ||
+    msgLower.includes('must see') ||
+    msgLower.includes('places') ||
+    msgLower.includes('attraction') ||
+    msgLower.includes('sight') ||
+    msgLower.includes('visit') ||
+    msgLower.includes('highlight') ||
+    msgLower.includes('monument') ||
+    msgLower.includes('stop') ||
+    msgLower.includes('what to see')
+  ) {
+    // Check if we have regional places for destination
+    const normalizedDest = dest.toLowerCase();
+    let matchedPlaces: Place[] = [];
+    for (const [k, pList] of Object.entries(REGIONAL_PLACES_DB)) {
+      if (normalizedDest.includes(k) || k.includes(normalizedDest)) {
+        matchedPlaces = pList;
+        break;
+      }
+    }
+
+    if (matchedPlaces.length > 0) {
+      const placesListMarkdown = matchedPlaces
+        .map(
+          (p, i) =>
+            `${i + 1}. **${p.name}** (${p.category})\n   • *Why visit*: ${p.description}\n   • *Timings*: ${p.opening_hours?.join(', ') || '09:00 AM - 06:00 PM'}`
+        )
+        .join('\n\n');
+
+      return {
+        reply: `### 🌟 Top Must-See Highlights in ${dest}:\n\n${placesListMarkdown}\n\n💡 **Tip**: In your itinerary, each stop has a direct **"Google Maps"** button to view real-time visitor photos, live traffic, and street reviews!`,
+        suggested_followups: [
+          `How do I launch Google Maps navigation?`,
+          `What are the ticket prices and dress codes?`,
+          `What is the total estimated budget?`
+        ],
+        source: 'geogen_spatial_intelligence'
+      };
+    }
+
+    if (stops.length > 0) {
+      const stopsListMarkdown = stops
+        .map((s, i) => `${i + 1}. **${s}** — Essential cultural & scenic highlight featured in your itinerary.`)
+        .join('\n');
+
+      return {
+        reply: `### 🌟 Top Must-See Highlights in ${dest}:\n\n${stopsListMarkdown}\n\nEvery stop is connected with real turn-by-turn road geometry. Click on any stop in your Map & Planner tab to view its coordinates, arrival timeline, and reviews.`,
+        suggested_followups: [
+          `How do I launch Google Maps navigation?`,
+          `What are the ticket prices and dress codes?`,
+          `Tell me about the departure route`
+        ],
+        source: 'geogen_spatial_intelligence'
+      };
+    }
+  }
+
+  // 2. ROUTE / DISTANCE / DIRECTIONS / NAVIGATION / GOOGLE MAPS
+  if (
+    msgLower.includes('route') ||
+    msgLower.includes('how to reach') ||
+    msgLower.includes('distance') ||
+    msgLower.includes('google map') ||
+    msgLower.includes('navigation') ||
+    msgLower.includes('gps') ||
+    msgLower.includes('driving') ||
+    msgLower.includes('how to go')
+  ) {
+    const dist = tripContext?.departure_leg?.formatted_distance || 'highway corridor';
+    const dur = tripContext?.departure_leg?.formatted_duration || 'estimated travel time';
+
+    return {
+      reply: `### 🚗 Navigation & Road Route to ${dest}:\n\n- **Departure Journey**: **${src}** ➔ **${dest}**\n- **Distance**: **${dist}**\n- **Travel Time**: **${dur}** via **${mode}**\n\n**1-Click Google Maps Handoff:**\n1. At the top of your **Map & Planner** page, tap the green **"Start Route In Google Maps (Source ➔ Stop 1) ↗"** button.\n2. Google Maps will instantly launch on your device with turn-by-turn GPS voice guidance.\n3. For intra-city hops between stops, click the **"Google Maps ↗"** transit link between any consecutive cards!`,
+      suggested_followups: [
+        'What are the best food stops along the route?',
+        'What are the top must-see places?',
+        'What is the total estimated budget?'
+      ],
+      source: 'geogen_spatial_intelligence'
+    };
+  }
+
+  // 3. BUDGET / COST / EXPENSE / PRICE
+  if (
+    msgLower.includes('budget') ||
+    msgLower.includes('cost') ||
+    msgLower.includes('price') ||
+    msgLower.includes('expense') ||
+    msgLower.includes('rupees') ||
+    msgLower.includes('money')
+  ) {
+    const total = tripContext?.budget_breakdown?.total_estimated || tripContext?.budget || 6000;
+    const travellers = tripContext?.travellers || 2;
+    const perPerson = Math.round(total / travellers);
+
+    return {
+      reply: `### 💰 Estimated Trip Budget for ${dest}:\n\n- **Total Estimated Budget**: **₹${total.toLocaleString('en-IN')}**\n- **Per Person**: **₹${perPerson.toLocaleString('en-IN')}** (for ${travellers} travellers)\n\n**Cost Breakdown:**\n- **Transport & Fuel/Tolls**: ~₹${Math.round(total * 0.4).toLocaleString('en-IN')}\n- **Regional Dining & Meals**: ~₹${Math.round(total * 0.35).toLocaleString('en-IN')}\n- **Monuments & Passes**: ~₹${Math.round(total * 0.15).toLocaleString('en-IN')}\n- **Flexible Contingency (15%)**: ~₹${Math.round(total * 0.1).toLocaleString('en-IN')}\n\n*Note: You can adjust days, travellers, and travel mode anytime from the Plan Your Journey hub to recalculate instant budgets.*`,
+      suggested_followups: [
+        'What are the top must-see places?',
+        'How do I download this as a PDF report?',
+        'Are there dress codes for monuments?'
+      ],
+      source: 'geogen_spatial_intelligence'
+    };
+  }
+
+  // 4. FOOD / DINING / CUISINE / RESTAURANTS
+  if (
+    msgLower.includes('food') ||
+    msgLower.includes('dish') ||
+    msgLower.includes('eat') ||
+    msgLower.includes('dining') ||
+    msgLower.includes('cuisine') ||
+    msgLower.includes('breakfast') ||
+    msgLower.includes('snack') ||
+    msgLower.includes('sweet')
+  ) {
+    let culinaryTip = `Authentic regional thalis, local vegetarian delicacies, and famous breakfast joints across ${dest}.`;
+    if (dest.toLowerCase().includes('mysuru') || dest.toLowerCase().includes('mysore')) {
+      culinaryTip = `Must-try specialties in Mysuru include **Original Vinayaka Mylari Butter Benne Dosa**, authentic melt-in-mouth **Mysore Pak from Guru Sweet Mart**, and rich South Indian filter coffee.`;
+    } else if (dest.toLowerCase().includes('dharwad')) {
+      culinaryTip = `Must-try delicacies in Dharwad include the GI-tagged caramelized **Dharwad Pedha from Line Bazaar (Mishra Pedha & Babusingh)**, Girmit with Mirchi Bhajji, and authentic Jolada Rotti Oota.`;
+    } else if (dest.toLowerCase().includes('jaipur')) {
+      culinaryTip = `Must-try Rajasthani dishes include **Dal Baati Churma**, Pyaaz Kachori from Rawat Mishthan Bhandar, Ker Sangri, and Ghewar.`;
+    } else if (dest.toLowerCase().includes('goa')) {
+      culinaryTip = `Famous Goan specialties include Kingfish peri-peri, butter garlic calamari, Goan fish curry thali, and authentic multi-layered Bebinca dessert.`;
+    }
+
+    return {
+      reply: `### 🍛 Iconic Culinary Delights in ${dest}:\n\n${culinaryTip}\n\n- **Vegetarian Options**: Pure vegetarian (*shuddh shakahari*) dining is widely accessible throughout all major sightseeing areas.\n- **Water Hygiene**: Stick to bottled mineral water or trusted restaurant RO water systems during long exploration days.`,
+      suggested_followups: [
+        'What are the top must-see places?',
+        'What is the total estimated budget?',
+        'How do I launch Google Maps navigation?'
+      ],
+      source: 'geogen_spatial_intelligence'
+    };
+  }
+
+  // 5. DRESS CODES / TEMPLE ETIQUETTE / SHOES
+  if (
+    msgLower.includes('dress') ||
+    msgLower.includes('cloth') ||
+    msgLower.includes('wear') ||
+    msgLower.includes('shoe') ||
+    msgLower.includes('temple') ||
+    msgLower.includes('rule') ||
+    msgLower.includes('code')
+  ) {
+    return {
+      reply: `### 🛕 Temple Guidelines & Cultural Etiquette for ${dest}:\n\n1. **Modest Clothing**: Ensure shoulders and knees are covered. Avoid sleeveless tops, tank tops, or short garments when visiting sacred shrines and heritage temples.\n2. **Footwear Protocol**: Shoes must be deposited at designated shoe counters before entering sanctum courtyards. Slip-on sandals are easiest. Bringing a pair of socks protects your feet from sun-warmed stone floors.\n3. **Photography**: Photography is usually welcomed in outer courtyards and palace grounds, but strictly restricted inside inner sanctums. Look for posted signage.`,
+      suggested_followups: [
+        'What are the top must-see places?',
+        'What are the packing essentials?',
+        'Tell me about the departure route'
+      ],
+      source: 'geogen_spatial_intelligence'
+    };
+  }
+
+  // 6. PACKING / WEATHER / BEST TIME
+  if (
+    msgLower.includes('pack') ||
+    msgLower.includes('weather') ||
+    msgLower.includes('best time') ||
+    msgLower.includes('luggage') ||
+    msgLower.includes('season') ||
+    msgLower.includes('bring')
+  ) {
+    return {
+      reply: `### 🎒 Packing & Timing Advisory for ${dest}:\n\n- **Best Daily Timing**: Start early (around 08:30 AM – 09:00 AM) to experience key monuments with minimal crowds and pleasant morning temperatures.\n- **Clothing**: Breathable cottons for daytime; keep a light layer or scarf handy for breezy evenings and shaded temple corridors.\n- **Essentials**: Sunscreen, sunglasses, a 10,000 mAh power bank for live GPS navigation, and small cash (₹500 in ₹20/₹50 notes) for temple offerings, shoe stands, and auto-rickshaws.`,
+      suggested_followups: [
+        'What are the top must-see places?',
+        'What local culinary specialties should I try?',
+        'How do I launch Google Maps navigation?'
+      ],
+      source: 'geogen_spatial_intelligence'
+    };
+  }
+
+  // 7. PDF / EXPORT / DOSSIER
+  if (
+    msgLower.includes('pdf') ||
+    msgLower.includes('export') ||
+    msgLower.includes('download') ||
+    msgLower.includes('report') ||
+    msgLower.includes('dossier')
+  ) {
+    return {
+      reply: `### 📄 Exporting Your Official Travel Dossier:\n\n1. In the top navigation bar, tap the **"PDF Dossier"** tab.\n2. Review your executive itinerary summary, high-resolution vector road map, and budget breakdown.\n3. Tap **"Generate Official Travel Dossier"** to export a clean, offline-ready printable document directly to your device!`,
+      suggested_followups: [
+        'What are the top must-see places?',
+        'How do I launch Google Maps navigation?',
+        'Give me a budget breakdown'
+      ],
+      source: 'geogen_spatial_intelligence'
+    };
+  }
+
+  // 8. GENERAL QUESTIONS / CONVERSATION
   return {
-    reply,
-    suggested_followups: followups,
-    source: 'geogen_ai_concierge'
+    reply: `I am your **GeoGen AI Spatial Travel Concierge**. For your journey from **${src}** to **${dest}**, I can assist you with turn-by-turn road navigation, monument tickets, must-see places, temple etiquette, and budget planning.\n\nWhat would you like to explore next?`,
+    suggested_followups: [
+      'What are the top must-see places?',
+      'How do I launch Google Maps navigation?',
+      'Give me a budget breakdown'
+    ],
+    source: 'geogen_spatial_intelligence'
   };
 }

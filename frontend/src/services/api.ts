@@ -276,6 +276,6 @@ export const api = {
     } catch (e) {
       console.warn('Backend chat unreachable, generating client concierge reply:', e);
     }
-    return chatWithAssistantClient(message, tripContext);
+    return chatWithAssistantClient(message, tripContext, _history);
   }
 };
